@@ -139,7 +139,7 @@ def render_tab_tasador() -> None:
             )
 
             # Mapa interactivo con el punto exacto tasado
-            fig_map = px.scatter_mapbox(
+            fig_map = px.scatter_map(
                 df_res,
                 lat="latitud_usada",
                 lon="longitud_usada",
@@ -155,7 +155,7 @@ def render_tab_tasador() -> None:
                 height=340,
             )
             fig_map.update_traces(marker=dict(size=16, color="#E63946"))
-            fig_map.update_layout(mapbox_style="open-street-map", margin=dict(l=0, r=0, t=0, b=0))
+            fig_map.update_layout(map_style="open-street-map", margin=dict(l=0, r=0, t=0, b=0))
             st.plotly_chart(fig_map, use_container_width=True)
 
     # =========================================================================
