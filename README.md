@@ -181,7 +181,7 @@ Por ello se adoptó un esquema de evaluación integral que combina **precisión 
 
 ## 🤖 Estrategia de Modelado y Comparativa de los 11 Estimadores
 
-En `inmobify_entrenamiento.ipynb` y `entrenar_y_guardar.py` se entrenaron y compararon **11 arquitecturas de regresión** bajo un esquema riguroso de preprocesamiento (`ColumnTransformer` con imputación, escalado robusto/estándar y codificación categórica) sobre el dataset curado (**477 propiedades**, split **80 % Train / 20 % Test** y validación cruzada **5-Fold CV**) aplicando `TransformedTargetRegressor` (`np.log1p` / `np.expm1`) sobre `precio_usd` y las 10 variables predictoras (`4 lineales + 6 no lineales/categóricas`):
+En `inmobify_entrenamiento.ipynb` se entrenaron y compararon **11 arquitecturas de regresión** bajo un esquema riguroso de preprocesamiento (`ColumnTransformer` con imputación, escalado robusto/estándar y codificación categórica) sobre el dataset curado (**477 propiedades**, split **80 % Train / 20 % Test** y validación cruzada **5-Fold CV**) aplicando `TransformedTargetRegressor` (`np.log1p` / `np.expm1`) sobre `precio_usd` y las 10 variables predictoras (`4 lineales + 6 no lineales/categóricas`):
 
 | Ranking | Modelo | Familia / Arquitectura | Rol en Producción | Observaciones Técnicas y Comportamiento en Evaluación |
 | :---: | :--- | :--- | :--- | :--- |
@@ -218,7 +218,7 @@ En `inmobify_entrenamiento.ipynb` y `entrenar_y_guardar.py` se entrenaron y comp
 | **11** | **`KNN Regressor`** | 37,03 % | 2,89 | 383,3 | 0,802 | 44,81 % | 2,97 | 361,8 | 1,41 |
 
 ### Hallazgos Clave del Benchmark
-- **Superioridad del Ensamble (`Ensamble Top-3`):** Al combinar `Gradient Boosting`, `HuberRegressor` y `LightGBM` mediante `VotingRegressor`, el ensamble supera a todos los modelos individuales tanto en **CV MAPE (`32,72 %`)**, **CV MAE (`USD 2,71/m²`)**, **CV $R^2_{\log}$ (`0,817`)** como en **Test MAPE (`36,81 %`)**, promediando las fortalezas no lineales de los árboles con la estabilidad frente a valores atípicos de la regresión robusta de Huber.
+- **Superioridad del Ensamble como modelo final seleccionado (`Ensamble Top-3`):** Al combinar `Gradient Boosting`, `HuberRegressor` y `LightGBM` mediante `VotingRegressor`, el ensamble supera a todos los modelos individuales tanto en **CV MAPE (`32,72 %`)**, **CV MAE (`USD 2,71/m²`)**, **CV $R^2_{\log}$ (`0,817`)** como en **Test MAPE (`36,81 %`)**, promediando las fortalezas no lineales de los árboles con la estabilidad frente a valores atípicos de la regresión robusta de Huber.
 - **Eficiencia Computacional:** Mientras `Random Forest` y `Gradient Boosting` requieren `136,36 s` y `72,59 s` respectivamente para el ajuste y búsqueda de hiperparámetros, el `Ensamble Top-3` ya configurado entrena en apenas **`8,91 s`** y ejecuta inferencias en milisegundos.
 - **Integridad y Trazabilidad (`modelos_ranking_meta.json`):** Cada modelo `.pkl` almacenado en `inmobify-storage` cuenta con verificación criptográfica **SHA-256** antes de su deserialización y reporta automáticamente sus métricas de validación junto a cada tasación emitida.
 

@@ -12,20 +12,6 @@ BARRIOS_ROSARIO = [
     "Refineria", "Cinco Esquinas", "Bella Vista", "Agote", "Parque", "Hospitales"
 ]
 
-MODELOS_DISPONIBLES = [
-    "Ensamble Top-3",
-    "Gradient Boosting",
-    "HuberRegressor",
-    "LightGBM",
-    "ElasticNet",
-    "Ridge",
-    "Lasso",
-    "XGBoost",
-    "SVR (RBF)",
-    "Random Forest",
-    "KNN Regressor",
-]
-
 def _obtener_cliente_apify() -> tuple[ApifyClient | None, str]:
     token = st.secrets.get("APIFY_TOKEN", os.getenv("APIFY_TOKEN", ""))
     actor_id = st.secrets.get("APIFY_ACTOR_ID", os.getenv("APIFY_ACTOR_ID", "inmobify2/inmobify"))
@@ -49,15 +35,6 @@ def render_tab_tasador() -> None:
         "Conectado en tiempo real al Actor de inferencia en Apify, con geocodificación automática "
         "y cálculo de densidad comercial a 200 m."
     )
-
-    # Selector de modelo oculto en panel avanzado para mantener simple la interfaz operativa
-    with st.expander("⚙️ Configuración avanzada del modelo de Machine Learning", expanded=False):
-        modelo_elegido = st.selectbox(
-            "Modelo a utilizar para la predicción:",
-            options=MODELOS_DISPONIBLES,
-            index=0,
-            help="Por defecto se utiliza Ensamble Top-3 (menor error de validación cruzada).",
-        )
 
     modo_tab_ind, modo_tab_lote = st.tabs(["🏢 Tasación Individual", "📊 Tasación en Lote (CSV)"])
 
@@ -91,8 +68,6 @@ def render_tab_tasador() -> None:
 
         if submitted:
             payload = {
-                "kv_store_name": "inmobify-storage",
-                "modelo_elegido": modelo_elegido,
                 "modo_ejecucion": "individual",
                 "id_consulta": "WEB-IND-01",
                 "direccion": direccion.strip(),
@@ -230,8 +205,6 @@ def render_tab_tasador() -> None:
                     })
 
                 payload_lote = {
-                    "kv_store_name": "inmobify-storage",
-                    "modelo_elegido": modelo_elegido,
                     "modo_ejecucion": "lote",
                     "propiedades": propiedades,
                 }
@@ -243,7 +216,7 @@ def render_tab_tasador() -> None:
                         st.error(f"Error al procesar lote: {exc}")
                         return
 
-                st.success(f"Tasación completada: {len(df_lote_out)} propiedades procesadas con **{modelo_elegido}**.")
+                st.success(f"Tasación completada: {len(df_lote_out)} propiedades procesadas con **Ensamble Top-3**.")
                 st.dataframe(df_lote_out, use_container_width=True)
 
                 st.download_button(
