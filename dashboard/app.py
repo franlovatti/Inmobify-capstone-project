@@ -116,29 +116,58 @@ def render_tab_tasador() -> None:
 
             res = df_res.iloc[0]
 
-            # KPIs principales
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Alquiler Estimado", f"USD {res['precio_predicho_usd']:,.2f} / mes")
-            m2.metric("Valor Unitario", f"USD {res['precio_m2_predicho_usd']:,.2f} / m²")
+            # KPIs principales en grilla 2x2 para que nunca se corte el texto
+            diag_full = str(res["diagnostico_mercado"])
+            if "Oportunidad" in diag_full:
+                diag_corto = "Oportunidad"
+            elif "Sobrevaluado" in diag_full:
+                diag_corto = "Sobrevaluado"
+            elif "Mercado" in diag_full:
+                diag_corto = "Precio de Mercado"
+            else:
+                diag_corto = "Referencia"
 
             diff = res.get("diferencia_vs_publicado_pct")
             delta_txt = f"{diff:+.1f}% vs. publicado" if pd.notna(diff) else "Sin precio publicado"
-            m3.metric("Diagnóstico de Mercado", res["diagnostico_mercado"], delta=delta_txt, delta_color="inverse")
-            m4.metric(
+
+            r1_c1, r1_c2 = st.columns(2)
+            r1_c1.metric(
+                "Alquiler Mensual Estimado",
+                f"USD {res['precio_predicho_usd']:,.2f}",
+                delta=f"USD {res['precio_m2_predicho_usd']:,.2f} / m²",
+                delta_color="off",
+            )
+            r1_c2.metric(
+                "Diagnóstico de Mercado",
+                diag_corto,
+                delta=delta_txt,
+                delta_color="inverse",
+            )
+
+            r2_c1, r2_c2 = st.columns(2)
+            r2_c1.metric(
                 "Entorno Comercial (200 m)",
                 f"{int(res['densidad_comercial_200m'])} comercios",
                 delta=f"{int(res['diversidad_rubros_200m'])} rubros distintos",
                 delta_color="off",
             )
+            r2_c2.metric(
+                "Distancia a Polo Comercial",
+                f"{res['dist_polo_mas_cercano_m']:.0f} m",
+                delta=f"Barrio: {res['barrio']}",
+                delta_color="off",
+            )
 
             st.info(
                 f"📍 **Ubicación resuelta ({res['origen_coordenadas']}):** Barrio **{res['barrio']}** "
-                f"(`{res['latitud_usada']:.5f}, {res['longitud_usada']:.5f}`) — "
-                f"A **{res['dist_polo_mas_cercano_m']:.0f} m** del polo comercial más cercano | "
+                f"(`{res['latitud_usada']:.5f}, {res['longitud_usada']:.5f}`) | "
                 f"Modelo: **{res['modelo_utilizado']}**"
             )
 
-            # Mapa interactivo con el punto exacto tasado
+            # Mapa interactivo centrado explícitamente en la propiedad tasada
+            lat_pt = float(res["latitud_usada"])
+            lon_pt = float(res["longitud_usada"])
+
             fig_map = px.scatter_map(
                 df_res,
                 lat="latitud_usada",
@@ -151,11 +180,15 @@ def render_tab_tasador() -> None:
                     "densidad_comercial_200m": True,
                     "diagnostico_mercado": True,
                 },
-                zoom=14,
-                height=340,
+                center={"lat": lat_pt, "lon": lon_pt},
+                zoom=15,
+                height=360,
             )
-            fig_map.update_traces(marker=dict(size=16, color="#E63946"))
-            fig_map.update_layout(map_style="open-street-map", margin=dict(l=0, r=0, t=0, b=0))
+            fig_map.update_traces(marker=dict(size=18, color="#E63946"))
+            fig_map.update_layout(
+                map_style="carto-positron",
+                margin=dict(l=0, r=0, t=0, b=0),
+            )
             st.plotly_chart(fig_map, use_container_width=True)
 
     # =========================================================================
