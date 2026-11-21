@@ -76,12 +76,24 @@ FASE 2: ENTRENAMIENTO, SELECCIÓN DE MODELOS E INFERENCIA EN PRODUCCIÓN (ML & A
 
 ## 🗄️ Fuentes de Datos y Proceso de Curación
 
-1. **Oferta Inmobiliaria Comercial (`raw_zonaprop_rosario.csv`):**
+### 1. **Oferta Inmobiliaria Comercial (`raw_zonaprop_rosario.csv`):**
 * **Origen:** Relevamiento mediante web scraping sobre publicaciones comerciales de Rosario (`1.079` registros iniciales).
 * **Curación:** Estandarización monetaria (conversión de avisos en pesos argentinos a USD mediante cotización de referencia), filtrado estricto al polígono geográfico de Rosario, imputación controlada de expensas/atributos faltantes y remoción de valores atípicos extremos (superficies o precios inverosímiles), consolidando **477 inmuebles comerciales validados** (*Locales comerciales* y *Oficinas*).
 
+### ¿Por qué entrenar con 477 registros curados en lugar de imputar los 1.079 crudos?
 
-2. **Actividad Comercial y Flujo Urbano (`maestro_comercios_rosario.csv`):**
+El filtrado de **1.079 registros iniciales a 477 inmuebles validados** responde a un criterio estricto de integridad de datos para evitar contaminar el aprendizaje de los modelos:
+
+1. **Deduplicación de avisos:** Eliminación de publicaciones repetidas por distintas inmobiliarias o renovaciones dentro del portal.
+2. **Prohibición de imputación sobre la variable objetivo (`precio_usd`):** Muchos avisos figuran como *"Consultar"* o con montos simbólicos (`$ 1`). Rellenar precios faltantes con medias o medianas barriales fabricaría etiquetas artificiales que anularían el efecto de las variables micro-geográficas (densidad comercial y tráfico a 200 m).
+3. **Integridad de superficie y moneda:** Se descartaron registros sin metraje válido (`superficie_m2`) o con inconsistencias evidentes entre moneda y monto publicado, evitando aplicar conversiones especulativas que introdujeran sesgo en el target.
+4. **Frontera geográfica estricta de Rosario:** Se excluyeron publicaciones ubicadas en localidades vecinas del Gran Rosario (Funes, Roldán, Villa Gobernador Gálvez, Pérez) o sin coordenadas válidas, dado que el maestro de comercios cubre exclusivamente el ejido urbano de Rosario.
+5. **Homogeneidad de segmento:** Se acotó la muestra a **Locales comerciales** y **Oficinas**, excluyendo depósitos industriales, galpones o cocheras que responden a otra estructura de costos.
+
+> **Enfoque metodológico:** En problemas de valuación inmobiliaria, entrenar con **477 observaciones reales y verificadas** garantiza que el modelo aprenda relaciones genuinas entre ubicación, entorno comercial y precio, reservando la inferencia para estimar el valor de referencia de propiedades sin precio publicado.
+
+
+### 2. **Actividad Comercial y Flujo Urbano (`maestro_comercios_rosario.csv`):**
 * **Origen:** Relevamiento geoespacial de **2.100 comercios, locales gastronómicos, servicios e instituciones** de Rosario con coordenadas, categoría/rubro y cantidad de reseñas de usuarios.
 * **Uso:** Sirve como base espacial de consulta tanto en el ETL histórico como en el motor de inferencia en vivo para cuantificar la vitalidad comercial a 200 metros de cada propiedad.
 
@@ -133,42 +145,82 @@ El análisis exploratorio reveló patrones estructurales y espaciales determinan
 
 ---
 
-## 🎯 ¿Por qué se eligieron estas Métricas?
+## 🎯 Métricas de Evaluación y Criterios de Negocio
 
-Debido a la **fuerte asimetría positiva (cola derecha)** verificada en el EDA —donde un pequeño grupo de locales de gran superficie supera los USD 3.000–5.000/mes frente a una mediana de USD 750/mes—, métricas tradicionales basadas en errores cuadráticos como **RMSE** resultan inadecuadas porque quedan dominadas por los errores absolutos en inmuebles grandes y penalizan poco los errores en locales pequeños.
+Debido a la **fuerte asimetría positiva (cola derecha)** verificada en el EDA —donde un pequeño grupo de locales de gran superficie supera los USD 3.000–5.000/mes frente a una mediana global de USD 750/mes—, métricas tradicionales basadas en errores cuadráticos como el **RMSE** resultan inadecuadas como criterio principal porque quedan dominadas por los errores absolutos en inmuebles grandes y penalizan poco los desvíos en locales chicos.
 
-Por ello se adoptó un esquema de evaluación dual orientado al negocio inmobiliario:
+Por ello se adoptó un esquema de evaluación integral que combina **precisión relativa**, **error monetario unitario**, **capacidad explicativa estadística** y **accionabilidad comercial**:
 
-1. **MAPE (Mean Absolute Percentage Error — Error Porcentual Absoluto Medio):**
-* Mide el error relativo porcentual promedio ($\frac{1}{n}\sum \left\vert{}\frac{y_i - \hat{y}_i}{y_i}\right\vert{}$), otorgando exactamente el **mismo peso relativo** a un local pequeño de USD 350/mes que a una esquina comercial de USD 2.500/mes.
+### 1. Métricas Técnicas de Selección y Diagnóstico
 
+1. **MAPE (Mean Absolute Percentage Error — Error Porcentual Absoluto Medio) `[Criterio Principal de Ranking]`:**
+   - **Fórmula:** $\text{MAPE} = \frac{100\%}{n} \sum_{i=1}^{n} \left| \frac{y_i - \hat{y}_i}{y_i} \right|$
+   - **Por qué se utiliza:** Evalúa el error relativo porcentual otorgando exactamente el **mismo peso** a un local pequeño de USD 350/mes que a una esquina comercial de USD 2.500/mes, evitando el sesgo por escala. En nuestro modelo campeón (`Ensamble Top-3`), el error en validación cruzada (5-Fold CV) es de **32,72 %**.
 
-2. **MAE en $\text{USD/m}^2$ (Mean Absolute Error Unitario):**
-* Traduce el error del modelo a **dólares por metro cuadrado** (en nuestro modelo campeón: **$\text{MAE} = \text{USD } 2,53/\text{m}^2$** en conjunto de prueba), una métrica directa e interpretable para cualquier tasador, corredor inmobiliario o inversor.
+2. **MAE Unitario en $\text{USD/m}^2$ (Mean Absolute Error por Metro Cuadrado) `[Criterio de Interpretabilidad Inmobiliaria]`:**
+   - **Fórmula:** $\text{MAE}_{\text{m}^2} = \frac{1}{n} \sum_{i=1}^{n} \left| \frac{y_i}{m^2_i} - \frac{\hat{y}_i}{m^2_i} \right|$
+   - **Por qué se utiliza:** Traduce el desvío del modelo a **dólares por metro cuadrado** (en nuestro modelo campeón: **$\text{MAE} = \text{USD } 2,53/\text{m}^2$** en conjunto de prueba), una unidad directa y comprensible para cualquier tasador, corredor inmobiliario o inversor.
 
+3. **Coeficiente de Determinación ($R^2$ en escala logarítmica y en USD) `[Métrica de Explicabilidad]`:**
+   - **Fórmula:** $R^2 = 1 - \frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{n} (y_i - \bar{y})^2}$
+   - **Por qué se utiliza:** Cuantifica qué proporción de la varianza total de precios del mercado rosarino logran explicar nuestras variables estructurales y geoespaciales frente a predecir simplemente el promedio global. Se reporta como métrica complementaria de ajuste global (especialmente informativa en escala logarítmica $R^2_{\log}$, donde la varianza está estabilizada) y no como criterio único de ranking porque en escala monetaria pura hereda la sensibilidad cuadrática a los extremos de la cola derecha.
 
-3. **KPI de Negocio — Índice de Precio Relativo ($\text{IPR}$) y Diagnóstico de Mercado:**
-* Permite traducir la predicción continua en una recomendación accionable inmediata (**Oportunidad** si el precio publicado está $\ge 15\%$ por debajo de la tasación, **Precio de Mercado** dentro de $\pm 15\%$, o **Sobrevaluado** si supera en $\ge 15\%$).
+4. **RMSE (Root Mean Squared Error) `[Métrica de Control de Outliers]`:**
+   - **Por qué se utiliza:** Se monitorea únicamente de forma diagnóstica para detectar si algún estimador genera predicciones explosivas en inmuebles de gran superficie ($> 200\text{ m}^2$), razón por la cual el target se entrena bajo transformación logarítmica (`TransformedTargetRegressor` con `log1p`/`expm1`) y se incorpora `HuberRegressor` dentro del ensamble.
 
+### 2. Métricas de Negocio y Diagnóstico en Producción
 
+5. **Índice de Precio Relativo ($\text{IPR}$) y Diagnóstico de Mercado:**
+   - Compara el valor publicado por el oferente frente a la tasación estimada por el modelo ($\Delta\% = \frac{\text{Precio Publicado} - \text{Precio Predicho}}{\text{Precio Predicho}} \times 100$) para emitir una recomendación accionable inmediata:
+     - **Oportunidad ($\le -15\%$):** Propiedad publicada al menos 15 % por debajo de su valor estimado de mercado.
+     - **Precio de Mercado ($-15\% \text{ a } +15\%$):** Valor alineado con las características físicas y el entorno comercial de la zona.
+     - **Sobrevaluado ($\ge +15\%$):** Canon locativo publicado 15 % o más por encima de la tasación esperada.
+     - **Tasación de Referencia:** Valor sugerido de salida al mercado cuando el inmueble aún no tiene precio publicado.
 
 ---
 
-## 🤖 Estrategia de Modelado y Resultados
+## 🤖 Estrategia de Modelado y Comparativa de los 11 Estimadores
 
-En `inmobify_entrenamiento.ipynb` se entrenaron y compararon **11 arquitecturas de regresión** bajo un esquema riguroso de preprocesamiento (`ColumnTransformer` con imputación, escalado robusto/estándar y codificación categórica) y transformación logarítmica del target (`TransformedTargetRegressor` con `np.log1p` / `np.expm1` para estabilizar la varianza y evitar predicciones negativas):
+En `inmobify_entrenamiento.ipynb` y `entrenar_y_guardar.py` se entrenaron y compararon **11 arquitecturas de regresión** bajo un esquema riguroso de preprocesamiento (`ColumnTransformer` con imputación, escalado robusto/estándar y codificación categórica) sobre el dataset curado (**477 propiedades**, split **80 % Train / 20 % Test** y validación cruzada **5-Fold CV**) aplicando `TransformedTargetRegressor` (`np.log1p` / `np.expm1`) sobre `precio_usd` y las 10 variables predictoras (`4 lineales + 6 no lineales/categóricas`):
 
-* **Familias evaluadas:**
-* *Ensambles y Boosting:* **Ensamble Top-3 (`VotingRegressor`)**, **Gradient Boosting**, **LightGBM**, **XGBoost**, **Random Forest**.
-* *Modelos Lineales Regularizados y Robustos:* **HuberRegressor**, **ElasticNet**, **Ridge**, **Lasso**.
-* *No Paramétricos / Kernel:* **SVR (RBF)**, **KNN Regressor**.
+| Ranking | Modelo | Familia / Arquitectura | Rol en Producción | Observaciones Técnicas y Comportamiento en Evaluación |
+| :---: | :--- | :--- | :--- | :--- |
+| **1** | **`Ensamble Top-3`** | `VotingRegressor` (`Gradient Boosting` + `HuberRegressor` + `LightGBM`) | **Modelo Campeón (Default)** | Combina captura no lineal de interacciones espaciales con robustez frente a outliers (`CV MAPE: 32,72%` \| `Test MAE: USD 2,53/m²`). Maximiza estabilidad en $R^2_{\log}$ y minimiza desvíos extremos. |
+| **2** | **`Gradient Boosting`** | Ensamble secuencial de árboles (`GradientBoostingRegressor`) | Integrante del Ensamble | Excelente ajuste en interacciones entre superficie logarítmica y proximidad a polos comerciales; líder individual entre modelos basados en árboles. |
+| **3** | **`HuberRegressor`** | Regresión lineal robusta (pérdida cuadrática + lineal en colas) | Integrante del Ensamble | Estabiliza las predicciones y controla el **RMSE** frente a locales atípicos de gran metraje sin perder interpretabilidad estructural. |
+| **4** | **`LightGBM`** | Gradient Boosting basado en histogramas (`LGBMRegressor`) | Integrante del Ensamble | Alta eficiencia en particiones sobre variables de densidad comercial y diversidad de rubros a 200 m. |
+| **5** | **`ElasticNet`** | Regresión lineal con penalización mixta $L_1 + L_2$ | Alternativa Lineal | Regulariza colinealidades entre `superficie_m2`, `log_superficie_m2` y `es_gran_superficie`, manteniendo buen $R^2_{\log}$ con baja varianza. |
+| **6** | **`Ridge`** | Regresión lineal con regularización $L_2$ | Alternativa Lineal | Conserva todas las variables con pesos suavizados; útil como baseline paramétrico interpretable. |
+| **7** | **`Lasso`** | Regresión lineal con selección de variables $L_1$ | Alternativa Lineal | Penaliza a cero las variables de menor aporte marginal directo. |
+| **8** | **`XGBoost`** | Extreme Gradient Boosting (`XGBRegressor`) | Alternativa Boosting | Regularización explícita en hojas; comportamiento competitivo en muestra media, ligeramente más sensible a sobreajuste que Gradient Boosting en $n=477$. |
+| **9** | **`SVR (RBF)`** | Support Vector Regression con kernel Gaussiano | Alternativa Kernel | Captura fronteras suaves no lineales, sensible al escalado de features espaciales y a los extremos de superficie. |
+| **10** | **`Random Forest`** | Ensamble paralelo de árboles (`RandomForestRegressor`) | Alternativa Bagging | Reduce varianza respecto a un árbol único, aunque tiende a suavizar extremos en las colas altas de precio. |
+| **11** | **`KNN Regressor`** | Vecinos más cercanos ponderados por distancia | Baseline No Paramétrico | Sensible a la dimensionalidad tras el One-Hot Encoding de barrios; utilizado como referencia base de proximidad pura. |
 
+### Trazabilidad e Integridad en Producción (`modelos_ranking_meta.json`)
+- **Verificación Criptográfica:** Cada archivo `.pkl` dentro de `modelos_entrenados/` cuenta con su hash **SHA-256** registrado en `modelos_ranking_meta.json`, verificado en tiempo de ejecución por `src/model_defs.py` antes de deserializar.
+- **Auditoría por Consulta:** En cada inferencia (tanto en Streamlit como en Make/Google Sheets), el sistema devuelve `modelo_utilizado`, `modelo_cv_mape_pct` y `modelo_test_mae_m2_usd` junto con la tasación y el diagnóstico de mercado.
 
-* **Modelo Campeón en Producción (`Ensamble Top-3`):**
-* Combina las predicciones de **Gradient Boosting + HuberRegressor + LightGBM**, logrando equilibrar la capacidad de capturar interacciones no lineales entre ubicación y entorno comercial con la robustez frente a valores atípicos propia de la regresión de Huber (`CV MAPE: 32,72%` | `Test MAE: USD 2,53/m²`).
-* Todos los modelos se almacenan serializados con validación criptográfica **SHA-256** (`modelos_ranking_meta.json`), permitiendo alternar entre cualquiera de los 11 estimadores desde el panel avanzado del dashboard.
+### Tabla Comparativa Completa (`modelos_ranking_meta.json`)
 
+| Ranking | Modelo | CV MAPE (%) | CV MAE ($\text{USD/m}^2$) | CV MAE Total (USD) | CV $R^2_{\log}$ | Test MAPE (%) | Test MAE ($\text{USD/m}^2$) | Test MAE Total (USD) | Tiempo Entrenamiento (s) |
+| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | **`Ensamble Top-3`** *(Campeón)* | **32,72 %** | **2,71** | **339,1** | **0,817** | **36,81 %** | **2,53** | **273,5** | 8,91 |
+| **2** | **`Gradient Boosting`** *(Ensamble)* | 33,07 % | 2,74 | 339,7 | 0,813 | 37,92 % | 2,59 | 297,7 | 72,59 |
+| **3** | **`HuberRegressor`** *(Ensamble)* | 33,99 % | 2,82 | 355,4 | 0,805 | 37,74 % | 2,60 | 283,0 | 21,24 |
+| **4** | **`LightGBM`** *(Ensamble)* | 34,92 % | 2,82 | 376,4 | 0,805 | 37,59 % | 2,58 | 286,6 | 8,84 |
+| **5** | **`ElasticNet`** | 34,96 % | 2,83 | 353,2 | 0,806 | 38,16 % | 2,56 | 279,4 | 3,26 |
+| **6** | **`Ridge`** | 34,98 % | 2,82 | 353,7 | 0,807 | 38,91 % | 2,59 | 286,5 | 3,10 |
+| **7** | **`Lasso`** | 35,02 % | 2,84 | 354,5 | 0,805 | 38,72 % | 2,58 | 285,0 | 4,08 |
+| **8** | **`XGBoost`** | 35,37 % | 2,83 | 369,7 | 0,805 | 37,40 % | 2,52 | 295,3 | 10,68 |
+| **9** | **`SVR (RBF)`** | 35,41 % | 2,87 | 371,3 | 0,805 | 37,36 % | 2,64 | 260,0 | 4,25 |
+| **10** | **`Random Forest`** | 35,43 % | 2,87 | 365,0 | 0,802 | 38,19 % | 2,60 | 292,5 | 136,36 |
+| **11** | **`KNN Regressor`** | 37,03 % | 2,89 | 383,3 | 0,802 | 44,81 % | 2,97 | 361,8 | 1,41 |
 
+### Hallazgos Clave del Benchmark
+- **Superioridad del Ensamble (`Ensamble Top-3`):** Al combinar `Gradient Boosting`, `HuberRegressor` y `LightGBM` mediante `VotingRegressor`, el ensamble supera a todos los modelos individuales tanto en **CV MAPE (`32,72 %`)**, **CV MAE (`USD 2,71/m²`)**, **CV $R^2_{\log}$ (`0,817`)** como en **Test MAPE (`36,81 %`)**, promediando las fortalezas no lineales de los árboles con la estabilidad frente a valores atípicos de la regresión robusta de Huber.
+- **Eficiencia Computacional:** Mientras `Random Forest` y `Gradient Boosting` requieren `136,36 s` y `72,59 s` respectivamente para el ajuste y búsqueda de hiperparámetros, el `Ensamble Top-3` ya configurado entrena en apenas **`8,91 s`** y ejecuta inferencias en milisegundos.
+- **Integridad y Trazabilidad (`modelos_ranking_meta.json`):** Cada modelo `.pkl` almacenado en `inmobify-storage` cuenta con verificación criptográfica **SHA-256** antes de su deserialización y reporta automáticamente sus métricas de validación junto a cada tasación emitida.
 
 ---
 
